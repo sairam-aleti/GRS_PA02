@@ -1,0 +1,17 @@
+# Compiled Binaries
+*.o
+*.a
+bin/
+obj/
+
+# Data Files (Too large for git)
+data/*.csv
+data/*.pcap
+*.log
+
+# System Files
+.DS_Store
+.vscode/
+
+# Temporary
+tmp/
