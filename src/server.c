@@ -6,62 +6,65 @@
 
 #include "common.h"
 #include <pthread.h>
+#include <signal.h>
 
-#define RECV_BUFFER_SIZE 65536
+void *handle_client(void *arg) {
+    int client_sock = *(int *)arg;
+    free(arg);
 
-void *handle_client(void *socket_desc) {
-    int sock = *(int*)socket_desc;
-    free(socket_desc);
+    // Use the unified 'Message' struct now
+    Message *my_msg = create_complex_message(1024);
+    
+    if (my_msg == NULL) {
+        perror("Failed to allocate complex message");
+        close(client_sock);
+        return NULL;
+    }
 
-    char *buffer = malloc(RECV_BUFFER_SIZE);
-    if (!buffer) {
-        close(sock);
+    char *recv_buffer = (char *)malloc(1024 * 1024);
+    if (!recv_buffer) {
+        perror("Failed to allocate recv buffer");
+        free_complex_message(my_msg);
+        close(client_sock);
         return NULL;
     }
 
     ssize_t bytes_read;
-    long total_bytes = 0;
-
-    while ((bytes_read = recv(sock, buffer, RECV_BUFFER_SIZE, 0)) > 0) {
-        total_bytes += bytes_read;
+    while ((bytes_read = recv(client_sock, recv_buffer, 1024 * 1024, 0)) > 0) {
+        // Drain buffer
     }
 
-    free(buffer);
-    close(sock);
+    free(recv_buffer);
+    free_complex_message(my_msg);
+    close(client_sock);
     return NULL;
 }
 
-int main(int argc, char *argv[]) {
-    int server_fd, new_socket;
+int main() {
+    int server_fd, *client_sock;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
-    int port = SERVER_PORT;
 
-    if (argc > 1) port = atoi(argv[1]);
+    signal(SIGPIPE, SIG_IGN);
 
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) exit(EXIT_FAILURE);
-
-    int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(port);
-
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) exit(EXIT_FAILURE);
-    if (listen(server_fd, 10) < 0) exit(EXIT_FAILURE);
-
-    printf("Server listening on %d\n", port);
+    setup_server_socket(&server_fd);
+    printf("Server listening on port %d\n", SERVER_PORT);
 
     while (1) {
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) continue;
-        
-        int *new_sock_ptr = malloc(sizeof(int));
-        *new_sock_ptr = new_socket;
-        
+        client_sock = malloc(sizeof(int));
+        if ((*client_sock = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0) {
+            perror("accept");
+            free(client_sock);
+            continue;
+        }
+
         pthread_t thread_id;
-        pthread_create(&thread_id, NULL, handle_client, (void*)new_sock_ptr);
-        pthread_detach(thread_id);
+        if (pthread_create(&thread_id, NULL, handle_client, client_sock) < 0) {
+            perror("pthread_create");
+            free(client_sock);
+        } else {
+            pthread_detach(thread_id);
+        }
     }
     return 0;
 }
